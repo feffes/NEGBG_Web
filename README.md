@@ -15,6 +15,8 @@ _You do not need to clone the repo or install anything to post a tournament or a
 
 How it works: `.github/workflows/content-from-issue.yml` parses the form with `stefanbuck/github-issue-parser`, `.github/scripts/build-content.mjs` writes the Hugo content (downloading uploaded images into the page bundles), and `peter-evans/create-pull-request` pushes it to `issue-form/<issue number>`. Every edit rebuilds from `master` and force-updates that branch.
 
+Because of that, treat the issue as the source of truth: commits pushed by hand to an `issue-form/<n>` branch are wiped by the next edit of the issue, and the post's date moves to the time of the latest edit. To hand-edit a generated post, merge the PR first (or stop editing the issue) and change it in a normal branch.
+
 The rest of this README is for working on the site itself.
 
 ## Prerequisites

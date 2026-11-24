@@ -9,6 +9,8 @@ body:
         Fill this in and the event page and its announcement post are created for you, and a pull request is opened for review.
         To fix something afterwards, just **edit this issue** and the pull request updates itself.
 
+        In the text boxes, use `##` for headings, never `###`: the form uses `###` to separate its fields, so everything after a `###` heading is lost.
+
   - type: input
     id: slug
     attributes:

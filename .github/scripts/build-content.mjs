@@ -45,7 +45,8 @@ const issueNumber = process.env.ISSUE_NUMBER ?? "local";
 function field(id) {
   const raw = fields[id];
   if (typeof raw !== "string") return "";
-  let value = raw.trim();
+  /* Issues edited in the browser come back with CRLF line endings. */
+  let value = raw.replace(/\r\n?/g, "\n").trim();
   if (value === NO_RESPONSE) return "";
   /* `render:` textareas arrive wrapped in a code fence on some parser versions. */
   const fenced = value.match(/^```[a-z]*\n([\s\S]*?)\n?```$/);
@@ -56,6 +57,18 @@ function field(id) {
 function required(id, label) {
   const value = field(id);
   if (!value) throw new UserError(`**${label}** is required but was left empty.`);
+  return value;
+}
+
+/* An optional http(s) link. Spaces, quotes, brackets and parentheses would break the
+   markdown link in the announcement, so they are rejected rather than escaped. */
+function link(id, label) {
+  const value = field(id);
+  if (value && !/^https?:\/\/[^\s"'<>()[\]]+$/.test(value)) {
+    throw new UserError(
+      `**${label}** must be a full link starting with \`https://\`, with no spaces. Got \`${value}\`.`,
+    );
+  }
   return value;
 }
 
@@ -103,28 +116,56 @@ function today() {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: TZ }).format(new Date());
 }
 
+/* A real calendar day as YYYY-MM-DD, or null. Rejects e.g. 2026-02-31, which Hugo
+   cannot parse and which would fail the whole site build. */
+function calendarDay(value) {
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const [y, mo, d] = m.slice(1).map(Number);
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  const real = date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
+  return real ? value : null;
+}
+
+/* A 24-hour time as HH:MM, or null. Accepts a single-digit hour, e.g. 9:30. */
+function clockTime(value) {
+  const m = value.match(/^(\d{1,2})[:.](\d{2})$/);
+  if (!m) return null;
+  const [h, min] = [Number(m[1]), Number(m[2])];
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
+}
+
+function dateAndTime(value) {
+  const m = value.match(/^(\S+)[ T](\S+)$/);
+  if (!m) return null;
+  const day = calendarDay(m[1]);
+  const time = clockTime(m[2]);
+  return day && time ? { day, time } : null;
+}
+
 function parseStart(value) {
-  const m = value.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})$/);
-  if (!m) {
+  const start = dateAndTime(value);
+  if (!start) {
     throw new UserError(
-      `**Start** must look like \`2026-05-31 16:00\` (date, space, 24-hour time). Got \`${value}\`.`,
+      `**Start** must be a real date and 24-hour time like \`2026-05-31 16:00\`. Got \`${value}\`.`,
     );
   }
-  return { day: m[1], time: m[2] };
+  return start;
 }
 
 /* End may be just a time (same day as start) or a full date and time. */
 function parseEnd(value, startDay) {
-  const timeOnly = value.match(/^(\d{2}:\d{2})$/);
-  if (timeOnly) return { day: startDay, time: timeOnly[1] };
+  const time = clockTime(value);
+  if (time) return { day: startDay, time };
 
-  const full = value.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})$/);
-  if (!full) {
+  const end = dateAndTime(value);
+  if (!end) {
     throw new UserError(
-      `**End** must be a time like \`20:00\`, or a full \`2026-05-31 20:00\`. Got \`${value}\`.`,
+      `**End** must be a 24-hour time like \`20:00\`, or a full \`2026-05-31 20:00\`. Got \`${value}\`.`,
     );
   }
-  return { day: full[1], time: full[2] };
+  return end;
 }
 
 function subtractMinutes(time, minutes) {
@@ -135,8 +176,10 @@ function subtractMinutes(time, minutes) {
 
 /* ---------- TOML ---------- */
 
+/* JSON string escapes are valid TOML basic-string escapes; TOML additionally
+   forbids a raw DEL, which JSON leaves alone. */
 function tomlString(value) {
-  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  return JSON.stringify(String(value)).replace(/\x7f/g, "\\u007f");
 }
 
 function frontMatter(pairs) {
@@ -233,7 +276,8 @@ async function rewriteBody(body, bundle) {
         new RegExp(`<img\\b[^>]*\\bsrc="${escaped}"[^>]*>`, "g"),
         (tag) => figure(file, tag.match(/\balt="([^"]*)"/)?.[1] ?? ""),
       )
-      .replace(new RegExp(escaped, "g"), file);
+      /* The lookahead stops .../assets/abc from also matching inside .../assets/abc-2. */
+      .replace(new RegExp(`${escaped}(?![^\\s)"'<>])`, "g"), file);
   }
 
   return out.trim();
@@ -339,10 +383,12 @@ async function newTournament() {
     throw new UserError("**End** must be after **Start**.");
   }
 
-  const checkinTime = field("checkin_time") ||
-    subtractMinutes(start.time, CHECKIN_MINUTES_BEFORE_START);
-  if (!/^\d{2}:\d{2}$/.test(checkinTime)) {
-    throw new UserError(`**Check-in** must be a time like \`15:30\`. Got \`${checkinTime}\`.`);
+  const checkinInput = field("checkin_time");
+  const checkinTime = checkinInput
+    ? clockTime(checkinInput)
+    : subtractMinutes(start.time, CHECKIN_MINUTES_BEFORE_START);
+  if (!checkinTime) {
+    throw new UserError(`**Check-in** must be a 24-hour time like \`15:30\`. Got \`${checkinInput}\`.`);
   }
 
   const price = field("price");
@@ -350,8 +396,8 @@ async function newTournament() {
     throw new UserError(`**Price** must be a whole number of kronor, or blank if free. Got \`${price}\`.`);
   }
 
-  const tournamentUrl = field("tournament_url");
-  const discordUrl = field("discord_url");
+  const tournamentUrl = link("tournament_url", "Tournament page");
+  const discordUrl = link("discord_url", "Discord event link");
 
   const location = field("venue").startsWith("Kappa Bar")
     ? KAPPA_BAR
@@ -378,8 +424,9 @@ async function newTournament() {
   );
 
   /* The event and the announcement share one cover file, which is why it goes in
-     static/images/ rather than either page bundle. */
-  const coverFile = await writeImage(path.join(REPO, "static/images"), `${slug}-cover`, await coverImage("cover"));
+     assets/images/ rather than either page bundle. assets/ (not static/) so that
+     partials/img.html and og-image.html can resize it and make a WebP version. */
+  const coverFile = await writeImage(path.join(REPO, "assets/images"), `${slug}-cover`, await coverImage("cover"));
   const cover = `/images/${coverFile}`;
 
   await mkdir(eventDir, { recursive: true });
@@ -582,8 +629,13 @@ try {
   for (const [key, value] of Object.entries(result)) await setOutput(key, value);
   console.log(result.summary);
 } catch (error) {
-  if (!(error instanceof UserError)) throw error;
-  await setOutput("error", error.message);
-  console.error(error.message);
+  /* Anything that is not the author's mistake (network failure, a bug here) still gets
+     a comment on the issue, pointing at the run log instead of failing silently. */
+  const message = error instanceof UserError
+    ? error.message
+    : "Something went wrong on our side, not in your form." +
+      " If editing the issue to retry does not help, ask in Discord.";
+  await setOutput("error", message);
+  console.error(error instanceof UserError ? error.message : error);
   process.exit(1);
 }
