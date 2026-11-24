@@ -1,0 +1,15 @@
+start_date = "2026-12-12T16:30:00"
+end_date = "2026-12-12T20:00:00"
+price = 50
+price_currency = "SEK"
+cover = "/images/testin-cover.jpg"
+checkin_time = "15:30"
+challonge_url = "https://example.org/"
+discord_url = "https://example.org/"
+
+[location]
+name = "Kappa Bar"
+street = "Rosenlundsgatan 8"
+postal_code = "411 20"
+city = "Göteborg"
+country = "SE"
