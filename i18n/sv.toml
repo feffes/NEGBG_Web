@@ -90,3 +90,9 @@ other = "Senast uppdaterad"
 newerPosts = "Nyare poster"
 olderPosts = "Äldre poster"
 
+
+# partials/edit-link.html
+[edit]
+  label = "Ändra sidan:"
+  form = "formulär"
+  github = "på GitHub"

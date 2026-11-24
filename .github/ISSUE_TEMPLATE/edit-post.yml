@@ -1,0 +1,112 @@
+name: Edit post or event
+description: Change an existing news post or event. Only fill in what should change.
+title: "[Edit] "
+labels: ["edit-post"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fill in the slug and **only the fields you want to change**; everything left blank stays as it is.
+        A pull request is opened for review. To fix something afterwards, just **edit this issue** and the pull request updates itself.
+
+        In the text boxes, use `##` for headings, never `###`: the form uses `###` to separate its fields, so everything after a `###` heading is lost.
+
+  - type: input
+    id: slug
+    attributes:
+      label: Slug
+      description: The last part of the page's address, e.g. `ggst-sep-2026-results` for negativeedge.se/news/ggst-sep-2026-results/. Works for both news posts and events.
+      placeholder: ggst-sep-2026-results
+    validations:
+      required: true
+
+  - type: textarea
+    id: find_replace
+    attributes:
+      label: Find and replace
+      description: |
+        The easiest way to fix typos. One change per line, `old text => new text`. Applied to both languages; the old text must match exactly.
+        Leave the new text empty to delete the old text.
+      placeholder: |
+        Kappa Bra => Kappa Bar
+        start 18:00 => start 18:30
+      render: text
+
+  - type: input
+    id: title_sv
+    attributes:
+      label: Ny titel (svenska)
+
+  - type: input
+    id: title_en
+    attributes:
+      label: New title (English)
+
+  - type: textarea
+    id: body_sv
+    attributes:
+      label: Ny text (svenska)
+      description: |
+        Replaces the **whole** text. Copy the current text from the page's `index.sv.md` / `index.en.md` on GitHub (Code tab, `content/news/<slug>/` or `content/events/<slug>/`) and change it there.
+        You can drag images straight into the box.
+
+  - type: textarea
+    id: body_en
+    attributes:
+      label: New text (English)
+
+  - type: textarea
+    id: cover
+    attributes:
+      label: New cover image
+      description: Drag **one** image in here. For an event, its announcement post gets the new cover too.
+
+  - type: textarea
+    id: gallery
+    attributes:
+      label: Add gallery images
+      description: News posts only. Added to the existing gallery, or a new one at the bottom.
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        **Events only.** Recurring events (like weekly casuals) keep their dates in a schedule this form cannot change.
+
+  - type: input
+    id: start
+    attributes:
+      label: New start
+      description: Date and time, 24-hour clock. If you move the start, fill in a new end too.
+      placeholder: 2026-05-31 16:00
+
+  - type: input
+    id: end
+    attributes:
+      label: New end
+      description: Just the time if it is the same day as the start, otherwise date and time.
+      placeholder: "20:00"
+
+  - type: input
+    id: checkin_time
+    attributes:
+      label: New check-in
+      placeholder: "15:30"
+
+  - type: input
+    id: price
+    attributes:
+      label: New price (SEK)
+      description: Numbers only, `0` for free.
+      placeholder: "25"
+
+  - type: input
+    id: tournament_url
+    attributes:
+      label: New tournament page
+      description: Signup or bracket page (start.gg, Challonge, ...).
+
+  - type: input
+    id: discord_url
+    attributes:
+      label: New Discord event link

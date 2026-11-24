@@ -1,7 +1,7 @@
 /*
   Turns a parsed GitHub Issue Form into Hugo content.
 
-  Usage: node build-content.mjs <new-tournament|news-post>
+  Usage: node build-content.mjs <new-tournament|news-post|edit-post>
   Reads the parsed issue JSON from $ISSUE_JSON (stefanbuck/github-issue-parser)
   and the issue number from $ISSUE_NUMBER.
 
@@ -13,7 +13,7 @@
   as `error` and exits 1; the workflow posts that back as an issue comment.
 */
 
-import { mkdir, writeFile, readdir, access, appendFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, readdir, access, appendFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -227,10 +227,29 @@ function imageUrls(text) {
   return [...new Set(text.match(IMAGE_URL) ?? [])];
 }
 
+/* File names (without extension) already used per directory, including ones written
+   during this run, so an edit never overwrites an image an existing post uses. */
+const takenNames = new Map();
+
+async function taken(dir) {
+  if (!takenNames.has(dir)) {
+    const files = await readdir(dir).catch(() => []);
+    takenNames.set(dir, new Set(files.map((f) => f.replace(/\.[^.]+$/, ""))));
+  }
+  return takenNames.get(dir);
+}
+
+/* The first name(i), i = 1, 2, ..., not yet used in dir. */
+async function freeName(dir, name) {
+  const used = await taken(dir);
+  for (let i = 1; ; i++) if (!used.has(name(i))) return name(i);
+}
+
 async function writeImage(dir, name, image) {
   await mkdir(dir, { recursive: true });
   const file = `${name}.${image.ext}`;
   await writeFile(path.join(dir, file), image.bytes);
+  (await taken(dir)).add(name);
   return file;
 }
 
@@ -260,7 +279,8 @@ async function rewriteBody(body, bundle) {
   let out = body;
   for (const url of imageUrls(body)) {
     if (!names.has(url)) {
-      names.set(url, await writeImage(bundle, `image-${names.size + 1}`, await download(url)));
+      const name = await freeName(bundle, (i) => `image-${i}`);
+      names.set(url, await writeImage(bundle, name, await download(url)));
     }
     const file = names.get(url);
     const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -292,13 +312,16 @@ function figure(file, caption) {
   return `{{< figure src="${file}" caption="${text.replace(/"/g, "'")}" >}}`;
 }
 
-/* The gallery shortcode is zero-config: it globs <bundle>/gallery/. */
-async function writeGallery(bundle) {
-  const urls = imageUrls(field("gallery"));
-  for (const [i, url] of urls.entries()) {
-    await writeImage(path.join(bundle, "gallery"), String(i + 1).padStart(2, "0"), await download(url));
+/* The gallery shortcode is zero-config: it globs <bundle>/gallery/. Returns how many
+   images were added; numbering continues after any already there. */
+async function writeGallery(bundle, id = "gallery") {
+  const dir = path.join(bundle, "gallery");
+  const urls = imageUrls(field(id));
+  for (const url of urls) {
+    const name = await freeName(dir, (i) => String(i).padStart(2, "0"));
+    await writeImage(dir, name, await download(url));
   }
-  return urls.length > 0;
+  return urls.length;
 }
 
 /* Authors type `1 | feffe | May`; the shortcode expects the player name bolded. */
@@ -592,6 +615,288 @@ async function newsPost() {
   };
 }
 
+/* ---------- editing existing TOML / front matter ---------- */
+
+function splitFrontMatter(text, file) {
+  /* Hugo tolerates a BOM or blank lines before the opening +++, and some posts have them. */
+  const m = text.replace(/\r\n?/g, "\n").match(/^\uFEFF?\s*\+\+\+\n([\s\S]*?)\n?\+\+\+\n?([\s\S]*)$/);
+  if (!m) throw new Error(`${file} has no +++ front matter`);
+  return { front: m[1], body: m[2].trim() };
+}
+
+function joinFrontMatter({ front, body }) {
+  return `+++\n${front.trim()}\n+++\n\n${body.trim()}\n`;
+}
+
+/* Index of the first [table] header; keys before it are top level. */
+function topLevelEnd(lines) {
+  const i = lines.findIndex((l) => /^\s*\[/.test(l));
+  return i === -1 ? lines.length : i;
+}
+
+/* Sets (or with literal === null, removes) a top-level key, leaving the rest of the
+   file, comments and tables included, untouched. */
+function setKey(toml, key, literal) {
+  const lines = toml.split("\n");
+  const end = topLevelEnd(lines);
+  const line = new RegExp(`^\\s*${key}\\s*=`);
+  const i = lines.slice(0, end).findIndex((l) => line.test(l));
+
+  if (literal === null) {
+    if (i !== -1) lines.splice(i, 1);
+  } else if (i !== -1) {
+    lines[i] = `${key} = ${literal}`;
+  } else {
+    let at = end;
+    while (at > 0 && lines[at - 1].trim() === "") at--;
+    lines.splice(at, 0, `${key} = ${literal}`);
+  }
+  return lines.join("\n");
+}
+
+/* A top-level basic-string value, or "" when missing. */
+function getString(toml, key) {
+  const lines = toml.split("\n");
+  const m = lines
+    .slice(0, topLevelEnd(lines))
+    .map((l) => l.match(new RegExp(`^\\s*${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")`)))
+    .find(Boolean);
+  return m ? JSON.parse(m[1]) : "";
+}
+
+/* `old text => new text`, one per line. An empty new text deletes the old one. */
+function parseReplacements(text) {
+  return text
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => {
+      const i = line.indexOf("=>");
+      const find = i === -1 ? "" : line.slice(0, i).trim();
+      if (!find) {
+        throw new UserError(
+          `Each **Find and replace** line needs \`old text => new text\`. Got \`${line.trim()}\`.`,
+        );
+      }
+      return { find, replace: line.slice(i + 2).trim() };
+    });
+}
+
+/* ---------- form: edit an existing post or event ---------- */
+
+async function editPost() {
+  const slug = validSlug(required("slug", "Slug"), "Slug", "ggst-sep-2026-results");
+  const newsDir = path.join(REPO, "content/news", slug);
+  const eventDir = path.join(REPO, "content/events", slug);
+  const [isNews, isEvent] = [await exists(newsDir), await exists(eventDir)];
+  if (!isNews && !isEvent) {
+    throw new UserError(
+      `There is no post or event called \`${slug}\`. The slug is the last part of the page's address, ` +
+        `e.g. \`ggst-sep-2026-results\` for negativeedge.se/news/ggst-sep-2026-results/.`,
+    );
+  }
+  if (isNews && isEvent) {
+    throw new UserError(`\`${slug}\` is both a post and an event, which this form cannot tell apart. Edit it by hand.`);
+  }
+
+  const dir = isNews ? newsDir : eventDir;
+  const rel = path.relative(REPO, dir);
+  const changes = [];
+
+  const eventOnly = ["start", "end", "checkin_time", "price", "tournament_url", "discord_url"];
+  if (isNews) {
+    const used = eventOnly.filter((id) => field(id));
+    if (used.length) {
+      throw new UserError(
+        `\`${slug}\` is a news post, so the event fields (${used.map((id) => `\`${id}\``).join(", ")}) do not apply. ` +
+          "Leave them blank, or use the event's slug to change the event.",
+      );
+    }
+  }
+  if (isEvent && field("gallery")) {
+    throw new UserError("**Add gallery images** only works on news posts.");
+  }
+
+  /* ----- text, per language ----- */
+
+  const replacements = parseReplacements(field("find_replace"));
+  const matched = new Set();
+  const pages = {};
+
+  for (const lang of LANGS) {
+    const file = path.join(dir, `index.${lang}.md`);
+    const asked = [`title_${lang}`, `body_${lang}`].filter((id) => field(id));
+    if (!(await exists(file))) {
+      if (asked.length) throw new UserError(`\`${rel}\` has no ${lang} version, so it cannot be changed.`);
+      continue;
+    }
+    const page = splitFrontMatter(await readFile(file, "utf8"), file);
+    const original = joinFrontMatter(page);
+
+    const title = field(`title_${lang}`);
+    if (title) {
+      page.front = setKey(page.front, "title", tomlString(title));
+      changes.push(`New ${lang} title.`);
+    }
+
+    const text = field(`body_${lang}`);
+    if (text) {
+      page.body = await rewriteBody(text, dir);
+      changes.push(`New ${lang} text.`);
+    }
+
+    for (const [i, { find, replace }] of replacements.entries()) {
+      const count = page.body.split(find).length - 1;
+      if (count === 0) continue;
+      matched.add(i);
+      page.body = page.body.split(find).join(replace);
+      changes.push(`Replaced \`${find}\` with \`${replace}\` (${lang}, ${count}×).`);
+    }
+
+    pages[lang] = { file, page, original };
+  }
+
+  const unmatched = replacements.filter((_, i) => !matched.has(i));
+  if (unmatched.length) {
+    throw new UserError(
+      `**Find and replace** could not find this text in the post:\n\n` +
+        unmatched.map(({ find }) => `- \`${find}\``).join("\n") +
+        "\n\nIt has to match exactly, including capital letters and punctuation.",
+    );
+  }
+
+  /* ----- news: cover and gallery ----- */
+
+  if (isNews) {
+    const cover = await coverImage("cover", { optional: true });
+    if (cover) {
+      const file = await writeImage(dir, await freeName(dir, (i) => (i === 1 ? "cover" : `cover-${i}`)), cover);
+      for (const { page } of Object.values(pages)) page.front = setKey(page.front, "cover", tomlString(file));
+      changes.push(`New cover \`${file}\`.`);
+    }
+
+    const added = await writeGallery(dir);
+    if (added) {
+      for (const [lang, { page }] of Object.entries(pages)) {
+        if (!page.body.includes("{{< gallery")) {
+          page.body += `\n\n## ${lang === "sv" ? "Galleri" : "Gallery"}\n\n{{< gallery >}}`;
+        }
+      }
+      changes.push(`Added ${added} gallery image${added === 1 ? "" : "s"}.`);
+    }
+  }
+
+  /* ----- event: data.toml ----- */
+
+  if (isEvent) {
+    const dataFile = path.join(dir, "data.toml");
+    const hasData = await exists(dataFile);
+    let data = hasData ? (await readFile(dataFile, "utf8")).replace(/\r\n?/g, "\n") : "";
+    const originalData = data;
+    const asked = eventOnly.filter((id) => field(id));
+    if (asked.length && !hasData) throw new UserError(`\`${rel}\` has no data.toml to change.`);
+
+    const oldStart = getString(data, "start_date");
+    const oldEnd = getString(data, "end_date");
+    if ((field("start") || field("end")) && !oldStart) {
+      throw new UserError(
+        `\`${slug}\` is a recurring event; its dates are a schedule in data.toml that this form cannot change.`,
+      );
+    }
+
+    if (field("start") || field("end")) {
+      const toParts = (iso) => ({ day: iso.slice(0, 10), time: iso.slice(11, 16) });
+      const start = field("start") ? parseStart(field("start")) : toParts(oldStart);
+      const end = field("end") ? parseEnd(field("end"), start.day) : toParts(oldEnd);
+      if (localDateTime(end.day, end.time) <= localDateTime(start.day, start.time)) {
+        throw new UserError(
+          `**End** (${end.day} ${end.time}) must be after **Start** (${start.day} ${start.time}). ` +
+            "If you moved the start, fill in a new end too.",
+        );
+      }
+      data = setKey(data, "start_date", tomlString(localDateTime(start.day, start.time)));
+      data = setKey(data, "end_date", tomlString(localDateTime(end.day, end.time)));
+      changes.push(`Time: ${start.day} ${start.time} to ${end.day} ${end.time}.`);
+    }
+
+    const checkinInput = field("checkin_time");
+    if (checkinInput) {
+      const checkin = clockTime(checkinInput);
+      if (!checkin) {
+        throw new UserError(`**Check-in** must be a 24-hour time like \`15:30\`. Got \`${checkinInput}\`.`);
+      }
+      data = setKey(data, "checkin_time", tomlString(checkin));
+      changes.push(`Check-in ${checkin}.`);
+    }
+
+    const price = field("price");
+    if (price) {
+      if (/^(0|free|gratis)$/i.test(price)) {
+        data = setKey(setKey(data, "price", null), "price_currency", null);
+        changes.push("Now free.");
+      } else if (/^\d+$/.test(price)) {
+        data = setKey(setKey(data, "price", price), "price_currency", tomlString("SEK"));
+        changes.push(`Price ${price} SEK.`);
+      } else {
+        throw new UserError(`**Price** must be a whole number of kronor, or \`0\` for free. Got \`${price}\`.`);
+      }
+    }
+
+    for (const [id, key, label] of [
+      ["tournament_url", "tournament_url", "Tournament page"],
+      ["discord_url", "discord_url", "Discord event link"],
+    ]) {
+      const url = link(id, label);
+      if (url) {
+        data = setKey(data, key, tomlString(url));
+        changes.push(`${label}: ${url}`);
+      }
+    }
+
+    /* The cover is shared with the announcement post, which points at the same path. */
+    const cover = await coverImage("cover", { optional: true });
+    if (cover) {
+      const imagesDir = path.join(REPO, "assets/images");
+      const name = await freeName(imagesDir, (i) => (i === 1 ? `${slug}-cover` : `${slug}-cover-${i}`));
+      const newPath = `/images/${await writeImage(imagesDir, name, cover)}`;
+      const oldPath = getString(data, "cover");
+      data = setKey(data, "cover", tomlString(newPath));
+      changes.push(`New cover \`${newPath}\`.`);
+
+      if (oldPath) {
+        for (const post of await readdir(path.join(REPO, "content/news"))) {
+          for (const lang of LANGS) {
+            const file = path.join(REPO, "content/news", post, `index.${lang}.md`);
+            if (!(await exists(file))) continue;
+            const source = await readFile(file, "utf8");
+            if (!source.includes(oldPath)) continue;
+            const page = splitFrontMatter(source, file);
+            if (getString(page.front, "cover") !== oldPath) continue;
+            page.front = setKey(page.front, "cover", tomlString(newPath));
+            await writeFile(file, joinFrontMatter(page));
+            changes.push(`Updated the cover of \`content/news/${post}\` (${lang}) too.`);
+          }
+        }
+      }
+    }
+
+    if (data !== originalData) await writeFile(dataFile, data.endsWith("\n") ? data : `${data}\n`);
+  }
+
+  for (const { file, page, original } of Object.values(pages)) {
+    const updated = joinFrontMatter(page);
+    if (updated !== original) await writeFile(file, updated);
+  }
+
+  if (changes.length === 0) {
+    throw new UserError("Nothing to change. Fill in at least one field besides **Slug**.");
+  }
+
+  return {
+    title: `Ändring: ${slug}`,
+    summary: [`Edits \`${rel}\`:`, "", ...changes.map((c) => `- ${c}`)].join("\n"),
+  };
+}
+
 /* ---------- plumbing ---------- */
 
 async function exists(p) {
@@ -612,6 +917,7 @@ async function setOutput(name, value) {
 const BUILDERS = {
   "new-tournament": newTournament,
   "news-post": newsPost,
+  "edit-post": editPost,
 };
 
 const formType = process.argv[2];

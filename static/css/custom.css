@@ -732,3 +732,10 @@ Gallery shortcode (with glightbox)
   }
 }
 
+
+/* "Edit this page" line at the bottom of posts and events (partials/edit-link.html) */
+.edit-link {
+  margin-top: 3em;
+  font-size: 0.8em;
+  opacity: 0.6;
+}

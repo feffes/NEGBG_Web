@@ -1,6 +1,6 @@
 name: Content from issue
 
-# Turns the "New tournament" and "News post" issue forms into a pull request.
+# Turns the "New tournament", "News post" and "Edit post or event" issue forms into a pull request.
 # Every edit of the issue rebuilds the content from master and force-updates the
 # same PR branch (issue-form/<number>), so the issue is the single source of truth.
 
@@ -26,7 +26,8 @@ jobs:
     if: >-
       github.event.issue.state == 'open' &&
       (contains(github.event.issue.labels.*.name, 'new-tournament') ||
-       contains(github.event.issue.labels.*.name, 'news-post')) &&
+       contains(github.event.issue.labels.*.name, 'news-post') ||
+       contains(github.event.issue.labels.*.name, 'edit-post')) &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
     runs-on: ubuntu-latest
 
@@ -45,6 +46,8 @@ jobs:
         run: |
           if [[ "${{ contains(github.event.issue.labels.*.name, 'new-tournament') }}" == "true" ]]; then
             echo "type=new-tournament" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ contains(github.event.issue.labels.*.name, 'edit-post') }}" == "true" ]]; then
+            echo "type=edit-post" >> "$GITHUB_OUTPUT"
           else
             echo "type=news-post" >> "$GITHUB_OUTPUT"
           fi
