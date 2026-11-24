@@ -12,7 +12,7 @@ body:
   - type: input
     id: slug
     attributes:
-      label: URL name
+      label: Event slug
       description: Lowercase letters, numbers and hyphens. Becomes the event's address.
       placeholder: kappa-kabrak-4
     validations:

@@ -308,12 +308,12 @@ function logistics(lang, { price, checkinTime, startTime, challongeUrl }) {
 /* ---------- form: new tournament (event + announcement) ---------- */
 
 async function newTournament() {
-  const slug = validSlug(required("slug", "URL name"), "URL name", "kappa-kabrak-4");
+  const slug = validSlug(required("slug", "Event slug"), "Event slug", "kappa-kabrak-4");
 
   const eventDir = path.join(REPO, "content/events", slug);
   const newsDir = path.join(REPO, "content/news", `${slug}-announcement`);
-  await mustNotExist(eventDir, "URL name");
-  await mustNotExist(newsDir, "URL name");
+  await mustNotExist(eventDir, "Event slug");
+  await mustNotExist(newsDir, "Event slug");
 
   const start = parseStart(required("start", "Start"));
   const end = parseEnd(required("end", "End"), start.day);
@@ -440,16 +440,16 @@ const ROLES = [
 ];
 
 async function newsPost() {
-  const slug = validSlug(required("slug", "URL name"), "URL name", "kappa-kabrak-4-results");
+  const slug = validSlug(required("slug", "Post slug"), "Post slug", "kappa-kabrak-4-results");
   const newsDir = path.join(REPO, "content/news", slug);
-  await mustNotExist(newsDir, "URL name");
+  await mustNotExist(newsDir, "Post slug");
 
   const notes = [];
 
   const eventSlug = field("event_slug");
   let role = "";
   if (eventSlug) {
-    validSlug(eventSlug, "Linked event", "kappa-kabrak-4");
+    validSlug(eventSlug, "Event slug", "kappa-kabrak-4");
     role = ROLES.find(([label]) => field("event_role").startsWith(label))?.[1] ?? "";
 
     /* The event may live in another open PR (e.g. a tournament form filed the same day),

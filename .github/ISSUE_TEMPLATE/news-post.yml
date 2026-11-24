@@ -14,7 +14,7 @@ body:
   - type: input
     id: slug
     attributes:
-      label: URL name
+      label: Post slug
       description: Lowercase letters, numbers and hyphens. Becomes the post's address.
       placeholder: kappa-kabrak-4-results
     validations:
@@ -39,15 +39,15 @@ body:
   - type: input
     id: event_slug
     attributes:
-      label: Linked event
-      description: Optional. The event's URL name, as in the event page's address. Leave blank if the post is not about an event.
+      label: Event slug (optional)
+      description: Links the post to an event, e.g. the slug you used in the New tournament form. Leave blank if the post is not about an event.
       placeholder: kappa-kabrak-4
 
   - type: dropdown
     id: event_role
     attributes:
       label: Link type
-      description: Only used if you filled in a linked event.
+      description: Only used if you filled in an event slug.
       options:
         - Other
         - Announcement
