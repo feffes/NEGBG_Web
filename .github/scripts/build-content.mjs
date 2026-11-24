@@ -281,6 +281,22 @@ function resultsTable() {
     `{{< tournament-results >}}\n${placements.join("\n")}\n{{< /tournament-results >}}`;
 }
 
+/*
+  Replaces the first `[marker]` line (case-insensitive, on a line of its own) with
+  block. Any further copies, and the marker itself when block is empty (e.g. no
+  placements were entered), are removed so they never show up on the page.
+*/
+function placeAtMarker(text, marker, block) {
+  const line = new RegExp(`^[ \\t]*\\[${marker}\\][ \\t]*$`, "gim");
+  let found = false;
+  const out = text.replace(line, () => {
+    if (found) return "";
+    found = true;
+    return block;
+  });
+  return { text: out.replace(/\n{3,}/g, "\n\n").trim(), found };
+}
+
 /* ---------- announcement logistics ---------- */
 
 /*
@@ -490,11 +506,21 @@ async function newsPost() {
   for (const lang of LANGS) {
     const { title, intro, body } = text[lang];
 
+    const gallery = hasGallery ? `## ${lang === "sv" ? "Galleri" : "Gallery"}\n\n{{< gallery >}}` : "";
+
+    /* The author can place each block with a marker line in the text;
+       without one it goes after the text. */
+    let main = await rewriteBody(body, newsDir);
+    const trailing = [];
+    for (const [marker, block] of [["results", results], ["gallery", gallery]]) {
+      const placed = placeAtMarker(main, marker, block);
+      main = placed.text;
+      if (block && !placed.found) trailing.push(block);
+    }
+
     const sections = [];
     if (intro) sections.push(await rewriteBody(intro, newsDir), "<!--more-->");
-    sections.push(await rewriteBody(body, newsDir));
-    if (results) sections.push(results);
-    if (hasGallery) sections.push(`## ${lang === "sv" ? "Galleri" : "Gallery"}`, "{{< gallery >}}");
+    sections.push(main, ...trailing);
 
     await mkdir(newsDir, { recursive: true });
     await writeFile(
