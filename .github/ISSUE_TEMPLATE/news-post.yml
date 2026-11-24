@@ -1,25 +1,21 @@
-name: Nyhetspost / News post
-description: "Skapa en nyhetspost, valfritt kopplad till ett event (t.ex. resultat). Create a news post, optionally linked to an event (e.g. results)."
-title: "[Nyhet] "
+name: News post
+description: Create a news post, optionally linked to an event (e.g. results).
+title: "[News] "
 labels: ["news-post"]
 body:
   - type: markdown
     attributes:
       value: |
-        Fyll i formuläret så skapas nyhetsposten åt dig, och en pull request öppnas för granskning.
-        Du kan rätta stavfel efteråt genom att **redigera det här issuet**, då uppdateras pull requesten automatiskt.
+        Fill this in and the news post is created for you, and a pull request is opened for review.
+        To fix something afterwards, just **edit this issue** and the pull request updates itself.
 
-        Ska du lägga upp en ny turnering? Använd formuläret **Ny turnering** i stället, det skapar både eventet och announcement-posten.
-
-        _Fill this in and the news post is created for you, and a pull request is opened for review.
-        To fix a typo afterwards, just **edit this issue** and the pull request updates itself.
-        Posting a new tournament? Use the **New tournament** form instead, it creates both the event and its announcement._
+        Posting a new tournament? Use the **New tournament** form instead, it creates both the event and its announcement.
 
   - type: input
     id: slug
     attributes:
-      label: URL-namn / URL name
-      description: Små bokstäver och bindestreck. Blir adressen till posten. / Lowercase and hyphens. Becomes the post's address.
+      label: URL name
+      description: Lowercase letters, numbers and hyphens. Becomes the post's address.
       placeholder: kappa-kabrak-4-results
     validations:
       required: true
@@ -43,42 +39,39 @@ body:
   - type: input
     id: event_slug
     attributes:
-      label: Kopplat event / Linked event
-      description: |
-        Valfritt. URL-namnet på eventet, samma som i adressen till eventsidan. Lämna tomt om posten inte hör till något event.
-        _Optional. The event's URL name, the same one that is in the event page's address. Leave blank if the post is not about an event._
+      label: Linked event
+      description: Optional. The event's URL name, as in the event page's address. Leave blank if the post is not about an event.
       placeholder: kappa-kabrak-4
 
   - type: dropdown
     id: event_role
     attributes:
-      label: Typ av koppling / Link type
-      description: Används bara om du fyllt i ett event ovan. / Only used if you filled in an event above.
+      label: Link type
+      description: Only used if you filled in a linked event.
       options:
-        - Övrigt / Other
+        - Other
         - Announcement
-        - Resultat / Recap
+        - Recap / results
       default: 0
 
   - type: textarea
     id: intro_sv
     attributes:
       label: Ingress (svenska)
-      description: Valfritt. Ett par meningar som syns i nyhetslistan. Lämna tomt för att använda början av texten.
+      description: Optional. A couple of sentences shown in the news list. Leave blank to use the start of the text.
       placeholder: I söndags samlades vi på Kappa Bar igen. 18 spelare, double elimination, ingen nåd.
 
   - type: textarea
     id: intro_en
     attributes:
       label: Intro (English)
-      description: Optional. A couple of sentences shown in the news list. Leave blank to use the start of the text.
       placeholder: On Sunday we gathered at Kappa Bar once again. 18 players, double elimination, and no mercy.
 
   - type: textarea
     id: results
     attributes:
-      label: Placeringar / Placements
-      description: Valfritt. En rad per placering, `placering | spelare | karaktär`. / Optional. One line per placement.
+      label: Placements
+      description: Optional. One line per placement, `place | player | character`.
       placeholder: |
         1 | Jenxey | Sol
         2 | Oskar | Axl Low
@@ -89,7 +82,7 @@ body:
     id: body_sv
     attributes:
       label: Text (svenska)
-      description: Du kan dra in bilder direkt i rutan.
+      description: You can drag images straight into the box.
     validations:
       required: true
 
@@ -97,18 +90,17 @@ body:
     id: body_en
     attributes:
       label: Text (English)
-      description: You can drag images straight into this box.
     validations:
       required: true
 
   - type: textarea
     id: cover
     attributes:
-      label: Omslagsbild / Cover image
-      description: Valfritt. Dra in **en** bild här. / Optional. Drag **one** image in here.
+      label: Cover image
+      description: Optional. Drag **one** image in here.
 
   - type: textarea
     id: gallery
     attributes:
-      label: Bildgalleri / Photo gallery
-      description: Valfritt. Dra in hur många bilder du vill, de visas som ett galleri längst ner. / Optional. Drag in as many as you like, they are shown as a gallery at the bottom.
+      label: Photo gallery
+      description: Optional. Drag in as many images as you like, they are shown as a gallery at the bottom.

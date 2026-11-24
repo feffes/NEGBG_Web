@@ -436,7 +436,7 @@ async function newTournament() {
 
 const ROLES = [
   ["Announcement", "announcement"],
-  ["Resultat", "recap"],
+  ["Recap", "recap"],
 ];
 
 async function newsPost() {
