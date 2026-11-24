@@ -115,7 +115,7 @@ price = 25
 price_currency = "SEK"
 cover = "/images/my-event-cover.jpg"
 checkin_time = "15:30"
-challonge_url = "https://challonge.com/..."
+tournament_url = "https://start.gg/..."   # or Challonge; older events use challonge_url
 discord_url = "https://discord.com/events/..."
 
 [location]

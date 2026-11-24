@@ -160,10 +160,10 @@ body:
       label: City
 
   - type: input
-    id: challonge_url
+    id: tournament_url
     attributes:
-      label: Challonge link
-      description: The signup link. Leave blank if there is none.
+      label: Tournament page
+      description: Signup or bracket page (start.gg, Challonge, ...). Leave blank if there is none.
 
   - type: input
     id: discord_url

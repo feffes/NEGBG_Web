@@ -286,22 +286,22 @@ function resultsTable() {
   repeats them in the announcement is generated rather than hand-typed. Parts drop out
   when the matching field is blank (free event, no signup link).
 */
-function logistics(lang, { price, checkinTime, startTime, challongeUrl }) {
+function logistics(lang, { price, checkinTime, startTime, tournamentUrl }) {
   const t = lang === "sv"
     ? {
         entry: (p) => `Inträde ${p} kr`,
         free: "Gratis inträde",
-        signup: (u) => `Anmäl dig via [Challonge](${u}).`,
+        signup: (u) => `Anmäl dig på [turneringssidan](${u}).`,
       }
     : {
         entry: (p) => `Entry ${p} SEK`,
         free: "Free entry",
-        signup: (u) => `Sign up on [Challonge](${u}).`,
+        signup: (u) => `Sign up on the [tournament page](${u}).`,
       };
 
   const parts = [price ? t.entry(price) : t.free, `check-in ${checkinTime}`, `start ${startTime}`];
   const sentences = [`${parts.join(", ")}.`];
-  if (challongeUrl) sentences.push(t.signup(challongeUrl));
+  if (tournamentUrl) sentences.push(t.signup(tournamentUrl));
   return sentences.join(" ");
 }
 
@@ -332,7 +332,7 @@ async function newTournament() {
     throw new UserError(`**Price** must be a whole number of kronor, or blank if free. Got \`${price}\`.`);
   }
 
-  const challongeUrl = field("challonge_url");
+  const tournamentUrl = field("tournament_url");
   const discordUrl = field("discord_url");
 
   const location = field("venue").startsWith("Kappa Bar")
@@ -375,7 +375,7 @@ async function newTournament() {
       ...(price ? [`price = ${price}`, `price_currency = "SEK"`] : []),
       `cover = ${tomlString(cover)}`,
       `checkin_time = ${tomlString(checkinTime)}`,
-      ...(challongeUrl ? [`challonge_url = ${tomlString(challongeUrl)}`] : []),
+      ...(tournamentUrl ? [`tournament_url = ${tomlString(tournamentUrl)}`] : []),
       ...(discordUrl ? [`discord_url = ${tomlString(discordUrl)}`] : []),
       "",
       "[location]",
@@ -416,7 +416,7 @@ async function newTournament() {
         event_role: tomlString("announcement"),
       }) +
         `\n${await rewriteBody(announcement || body, newsDir)}\n\n` +
-        `${logistics(lang, { price, checkinTime, startTime: start.time, challongeUrl })}\n`,
+        `${logistics(lang, { price, checkinTime, startTime: start.time, tournamentUrl })}\n`,
     );
   }
 
