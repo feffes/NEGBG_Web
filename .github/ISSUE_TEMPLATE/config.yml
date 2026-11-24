@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Question or idea
+  - name: Question
     url: https://discord.gg/kMVJ55wwy7
-    about: For anything that is not a tournament or a news post, talk to us on Discord.
+    about: Questions are quickest on Discord. Ideas and bug reports are welcome as a blank issue here.
