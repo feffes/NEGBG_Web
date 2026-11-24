@@ -71,7 +71,7 @@ body:
     id: results
     attributes:
       label: Placements
-      description: Optional. One line per placement, `place | player | character`.
+      description: Optional. One line per placement, `place | player | character`. Shown under a "Top 8" heading after the text.
       placeholder: |
         1 | Jenxey | Sol
         2 | Oskar | Axl Low

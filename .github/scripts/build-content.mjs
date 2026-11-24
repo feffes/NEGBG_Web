@@ -276,7 +276,9 @@ function resultsTable() {
     });
 
   if (placements.length === 0) return "";
-  return `{{< tournament-results >}}\n${placements.join("\n")}\n{{< /tournament-results >}}`;
+  /* Matches the hand-written results posts: a "## Top 8" section after the write-up. */
+  return `## Top ${placements.length}\n\n` +
+    `{{< tournament-results >}}\n${placements.join("\n")}\n{{< /tournament-results >}}`;
 }
 
 /* ---------- announcement logistics ---------- */
@@ -490,9 +492,9 @@ async function newsPost() {
 
     const sections = [];
     if (intro) sections.push(await rewriteBody(intro, newsDir), "<!--more-->");
-    if (results) sections.push(results);
     sections.push(await rewriteBody(body, newsDir));
-    if (hasGallery) sections.push("{{< gallery >}}");
+    if (results) sections.push(results);
+    if (hasGallery) sections.push(`## ${lang === "sv" ? "Galleri" : "Gallery"}`, "{{< gallery >}}");
 
     await mkdir(newsDir, { recursive: true });
     await writeFile(
