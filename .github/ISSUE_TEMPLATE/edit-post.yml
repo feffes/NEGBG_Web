@@ -6,100 +6,16 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Step 1:** fill in only the **Slug** and submit. The current content of the post or event is then loaded into this issue.
+        **Step 1:** fill in which page to change and submit. The current content of the post or event is then loaded into this issue.
         **Step 2:** edit the issue (⋯ → Edit) and change what you want right in the text. Saving opens a pull request for review, and every later edit updates it.
 
-        In the text boxes, use `##` for headings, never `###`: the form uses `###` to separate its fields, so everything after a `###` heading is lost.
-
+  # The sections loaded in step 2 are defined in .github/scripts/build-content.mjs
+  # (EDIT_SECTIONS). This label must stay "Slug" to match it.
   - type: input
     id: slug
     attributes:
       label: Slug
-      description: The last part of the page's address, e.g. `ggst-sep-2026-results` for negativeedge.se/news/ggst-sep-2026-results/. You can also paste the whole address. If a post and an event share a slug, write `news/<slug>` or `events/<slug>`. Changing it later loads that page instead.
+      description: The last part of the page's address, e.g. `ggst-sep-2026-results` for negativeedge.se/news/ggst-sep-2026-results/. You can also paste the whole address. If a post and an event share a slug, write `news/<slug>` or `events/<slug>`.
       placeholder: ggst-sep-2026-results
     validations:
       required: true
-
-  - type: input
-    id: title_sv
-    attributes:
-      label: Titel (svenska)
-      description: Leave everything below empty in step 1, it is filled in for you.
-
-  - type: input
-    id: title_en
-    attributes:
-      label: Title (English)
-
-  - type: input
-    id: summary_sv
-    attributes:
-      label: Sammanfattning (svenska)
-      description: Events only, shown in the event list.
-
-  - type: input
-    id: summary_en
-    attributes:
-      label: Summary (English)
-
-  - type: textarea
-    id: body_sv
-    attributes:
-      label: Text (svenska)
-      description: The whole text of the page. You can drag new images straight into the box.
-
-  - type: textarea
-    id: body_en
-    attributes:
-      label: Text (English)
-
-  - type: textarea
-    id: cover
-    attributes:
-      label: Cover image
-      description: Drag in **one** new image to replace the cover. For an event, its announcement post gets the new cover too.
-
-  - type: textarea
-    id: gallery
-    attributes:
-      label: Add gallery images
-      description: News posts only. Added to the existing gallery, or a new one at the bottom.
-
-  - type: input
-    id: start
-    attributes:
-      label: Start
-      description: One-off events only. Date and time, 24-hour clock.
-      placeholder: 2026-05-31 16:00
-
-  - type: input
-    id: end
-    attributes:
-      label: End
-      placeholder: 2026-05-31 20:00
-
-  - type: input
-    id: checkin_time
-    attributes:
-      label: Check-in
-      description: Clear it to remove the check-in time.
-      placeholder: "15:30"
-
-  - type: input
-    id: price
-    attributes:
-      label: Price (SEK)
-      description: Numbers only. Clear it, or `0`, for free.
-      placeholder: "25"
-
-  - type: input
-    id: tournament_url
-    attributes:
-      label: Tournament page
-      description: Signup or bracket page (start.gg, Challonge, ...). Clear it to remove the link.
-
-  - type: input
-    id: discord_url
-    attributes:
-      label: Discord event link
-      description: Clear it to remove the link.

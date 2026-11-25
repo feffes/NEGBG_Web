@@ -39,16 +39,32 @@ class UserError extends Error {}
 /* Issue forms send this literal string for a skipped optional field. */
 const NO_RESPONSE = "_No response_";
 
-const fields = JSON.parse(process.env.ISSUE_JSON ?? "{}");
 const issueNumber = process.env.ISSUE_NUMBER ?? "local";
 
+/* The edit form's sections are not in its template (step 1 only asks for the slug),
+   so for that form the script parses the issue body itself; see parseEditIssue. */
+let parsedFields;
+function fields() {
+  parsedFields ??= process.argv[2] === "edit-post"
+    ? parseEditIssue(process.env.ISSUE_BODY ?? "")
+    : JSON.parse(process.env.ISSUE_JSON ?? "{}");
+  return parsedFields;
+}
+
+/* Whether the issue has this section at all, as opposed to having it empty. */
+function has(id) {
+  return typeof fields()[id] === "string";
+}
+
 function field(id) {
-  const raw = fields[id];
+  const raw = fields()[id];
   if (typeof raw !== "string") return "";
   /* Issues edited in the browser come back with CRLF line endings. */
   let value = raw.replace(/\r\n?/g, "\n").trim();
   /* The edit form's hidden "loaded" marker ends up inside the last field's value. */
   value = value.replace(/\n*<!-- edit-post-loaded: [a-z0-9/-]+ -->/g, "").trim();
+  /* ...and each loaded section starts with a hidden editing tip. */
+  value = value.replace(/^<!-- tip: [\s\S]*?-->\s*/, "");
   if (value === NO_RESPONSE) return "";
   /* `render:` textareas arrive wrapped in a code fence on some parser versions. */
   const fenced = value.match(/^```[a-z]*\n([\s\S]*?)\n?```$/);
@@ -673,10 +689,13 @@ function getString(toml, key) {
   Two steps, both driven by the same issue:
 
   1. Load: the issue names a slug but has no content yet (or the slug changed since the
-     last load). The current post is written back into the issue body, in the exact
-     format the issue form produces, and nothing is committed.
+     last load). The current post is written back into the issue body, one "### label"
+     section per field that applies to this page, and nothing is committed.
   2. Save: every later edit of the issue is read as the full new state of the post and
      turned into a PR, like the other forms.
+
+  Step 1 is the issue form's only field (the slug); the sections in step 2 are written
+  by the script and parsed by it too (EDIT_SECTIONS, parseEditIssue).
 
   The issue body carries a hidden marker recording which slug was loaded. The workflow's
   own edit of the issue body does not start a new run, so loading cannot loop.
@@ -684,15 +703,49 @@ function getString(toml, key) {
 
 const LOADED_MARKER = /<!-- edit-post-loaded: ([a-z0-9/-]+) -->/;
 
-/* [id, label] pairs in form order, read from the template so the two never drift apart. */
-async function formLabels(form) {
-  const yml = await readFile(path.join(REPO, ".github/ISSUE_TEMPLATE", `${form}.yml`), "utf8");
-  return [...yml.matchAll(/^\s+id: (\S+)\n\s+attributes:\n\s+label: (.+)$/gm)].map((m) => [m[1], m[2].trim()]);
-}
+/*
+  The sections written into the issue when a page is loaded, in order. `when` picks the
+  ones that apply to this page, so a news post never shows event fields. The tip is a
+  hidden comment, visible only while editing the issue. "Slug" must match the label in
+  edit-post.yml, since step 1 comes from the template.
+*/
+const EDIT_SECTIONS = [
+  { id: "slug", label: "Slug", tip: "Which page this is. Change it to load a different page instead." },
+  { id: "title_sv", label: "Titel (svenska)", lang: "sv" },
+  { id: "title_en", label: "Title (English)", lang: "en" },
+  { id: "summary_sv", label: "Sammanfattning (svenska)", lang: "sv", when: (c) => c.isEvent, tip: "One sentence, shown in the event list." },
+  { id: "summary_en", label: "Summary (English)", lang: "en", when: (c) => c.isEvent },
+  { id: "body_sv", label: "Text (svenska)", lang: "sv", tip: "The whole text of the page. You can drag new images straight in." },
+  { id: "body_en", label: "Text (English)", lang: "en" },
+  { id: "cover", label: "Cover image", tip: "Drag in one new image to replace the cover, or leave this as it is." },
+  { id: "gallery", label: "Add gallery images", when: (c) => !c.isEvent, tip: "Drag in images to add them to the gallery." },
+  { id: "start", label: "Start", when: (c) => c.oneOff, tip: "Date and 24-hour time, e.g. 2026-05-31 16:00." },
+  { id: "end", label: "End", when: (c) => c.oneOff },
+  { id: "checkin_time", label: "Check-in", when: (c) => c.oneOff, tip: "Clear it to remove the check-in time." },
+  { id: "price", label: "Price (SEK)", when: (c) => c.oneOff, tip: "Numbers only. Clear it, or 0, for free." },
+  { id: "tournament_url", label: "Tournament page", when: (c) => c.oneOff, tip: "Signup or bracket page. Clear it to remove the link." },
+  { id: "discord_url", label: "Discord event link", when: (c) => c.oneOff, tip: "Clear it to remove the link." },
+];
 
-/* The issue form uses "### " to start each field, so a ### heading in a text would cut it off. */
-function demoteH3(text) {
-  return text.replace(/^###(?=\s)/gm, "####");
+/*
+  Splits the issue body on "### <label>" lines. Only a known section label, the first
+  time it appears, starts a new section; any other ### line (a heading the author wrote)
+  stays part of the text, unlike in GitHub's own issue form parser.
+*/
+function parseEditIssue(body) {
+  const labels = new Map(EDIT_SECTIONS.map(({ id, label }) => [label, id]));
+  const out = {};
+  let current = null;
+  for (const line of body.replace(/\r\n?/g, "\n").split("\n")) {
+    const id = labels.get(line.match(/^###\s+(.+?)\s*$/)?.[1]);
+    if (id && !(id in out)) {
+      current = id;
+      out[id] = "";
+    } else if (current) {
+      out[current] += `${line}\n`;
+    }
+  }
+  return out;
 }
 
 /*
@@ -755,23 +808,20 @@ const ISO_TO_FORM = (iso) => (iso ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` :
 async function loadIntoIssue(ref, key) {
   const target = await findPage(ref);
   const pages = await readPages(target.dir);
+  const oneOff = target.isEvent && Boolean(getString(target.data, "start_date"));
   const values = { slug: key };
-  let demoted = false;
 
   for (const [lang, page] of Object.entries(pages)) {
     values[`title_${lang}`] = getString(page.front, "title");
     values[`summary_${lang}`] = getString(page.front, "summary");
-    const body = demoteH3(page.body);
-    demoted ||= body !== page.body;
-    values[`body_${lang}`] = body;
+    values[`body_${lang}`] = page.body;
   }
 
-  const coverPath = target.isEvent ? getString(target.data, "cover") : getString(pages.sv?.front ?? pages.en?.front ?? "", "cover");
-  values.cover = coverPath
-    ? `Current: \`${coverPath}\`. Drag a new image here to replace it, or leave this as it is.`
-    : "";
+  const coverPath = target.isEvent
+    ? getString(target.data, "cover")
+    : getString(pages.sv?.front ?? pages.en?.front ?? "", "cover");
+  values.cover = coverPath ? `Current: \`${coverPath}\`` : "";
 
-  const oneOff = target.isEvent && getString(target.data, "start_date");
   if (oneOff) {
     values.start = ISO_TO_FORM(getString(target.data, "start_date"));
     values.end = ISO_TO_FORM(getString(target.data, "end_date"));
@@ -781,9 +831,16 @@ async function loadIntoIssue(ref, key) {
     values.discord_url = getString(target.data, "discord_url");
   }
 
-  const body = (await formLabels("edit-post"))
-    .map(([id, label]) => `### ${label}\n\n${values[id] || NO_RESPONSE}`)
-    .join("\n\n") + `\n\n<!-- edit-post-loaded: ${key} -->\n`;
+  const context = { isEvent: target.isEvent, oneOff };
+  const sections = EDIT_SECTIONS
+    .filter(({ lang, when }) => (!lang || pages[lang]) && (!when || when(context)))
+    .map(({ id, label, tip }) => [`### ${label}`, tip && `<!-- tip: ${tip} -->`, values[id] ?? ""].filter(Boolean).join("\n\n"));
+
+  const body = [
+    `_Editing \`${target.rel}\`. Edit this issue (⋯ → Edit) and change what you want; saving opens or updates a pull request._`,
+    ...sections,
+    `<!-- edit-post-loaded: ${key} -->`,
+  ].join("\n\n") + "\n";
 
   const notes = [
     `Jag har laddat in nuvarande innehåll från \`${target.rel}\` i issuet.`,
@@ -792,9 +849,6 @@ async function loadIntoIssue(ref, key) {
   ];
   if (target.isEvent && !oneOff) {
     notes.push("", "Det här är ett återkommande event, så datum och tider kan inte ändras här.");
-  }
-  if (demoted) {
-    notes.push("", "Rubriker med `###` har gjorts om till `####`, eftersom formuläret använder `###` för sina fält.");
   }
   return { mode: "loaded", issue_body: body, comment: notes.join("\n") };
 }
@@ -818,21 +872,21 @@ async function saveFromIssue(ref) {
     }
     page.original = joinFrontMatter(page);
 
-    const title = required(`title_${lang}`, `Title (${lang})`);
+    const title = has(`title_${lang}`) ? required(`title_${lang}`, `Title (${lang})`) : getString(page.front, "title");
     if (title !== getString(page.front, "title")) {
       page.front = setKey(page.front, "title", tomlString(title));
       changes.push(`New ${lang} title.`);
     }
 
-    const summary = field(`summary_${lang}`);
+    const summary = has(`summary_${lang}`) ? field(`summary_${lang}`) : getString(page.front, "summary");
     if (summary !== getString(page.front, "summary")) {
       if (!summary && isEvent) throw new UserError(`**Summary (${lang})** is shown in the event list and cannot be empty.`);
       page.front = setKey(page.front, "summary", summary ? tomlString(summary) : null);
       changes.push(`New ${lang} summary.`);
     }
 
-    const body = await rewriteBody(required(`body_${lang}`, `Text (${lang})`), dir);
-    if (body !== demoteH3(page.body).trim()) {
+    const body = has(`body_${lang}`) ? await rewriteBody(required(`body_${lang}`, `Text (${lang})`), dir) : page.body;
+    if (body !== page.body.trim()) {
       page.body = body;
       changes.push(`New ${lang} text.`);
     }
@@ -876,7 +930,7 @@ async function saveFromIssue(ref) {
       if (eventFields.some((id) => field(id))) {
         throw new UserError(`\`${slug}\` is a recurring event; its dates are a schedule this form cannot change.`);
       }
-    } else {
+    } else if (has("start") || has("end")) {
       const start = parseStart(required("start", "Start"));
       const end = parseEnd(required("end", "End"), start.day);
       if (localDateTime(end.day, end.time) <= localDateTime(start.day, start.time)) {
