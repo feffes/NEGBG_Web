@@ -15,6 +15,8 @@ On Friday September 11 it was finally time again: after the summer break we kick
 
 It was good to see that interest in GGST didn't cool off over the summer. If anything we got both familiar faces and a few new ones who weren't shy about pushing hard from the very first match.
 
+hThsdisahdaisda<s 
+
 {{< figure src="publiken.jpg" caption="Kappa Bar filled up as the evening went on" >}}
 
 Between sets there was as much hanging out as there was playing. People gathered around the tables, talked matchups and kept an eye on whatever was running on the screens.
