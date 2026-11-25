@@ -62,11 +62,28 @@ jobs:
         env:
           ISSUE_JSON: ${{ steps.parse.outputs.jsonString }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          # The edit form reads its hidden "loaded" marker from the raw body.
+          ISSUE_BODY: ${{ github.event.issue.body }}
           FORM_TYPE: ${{ steps.form.outputs.type }}
         run: node .github/scripts/build-content.mjs "$FORM_TYPE"
 
+      # Edit form, step 1: write the current post into the issue for the author to edit.
+      # Edits made with the workflow's own token do not trigger another run.
+      - name: Load the current post into the issue
+        if: steps.build.outputs.mode == 'loaded'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          NEW_BODY: ${{ steps.build.outputs.issue_body }}
+          COMMENT: ${{ steps.build.outputs.comment }}
+        with:
+          script: |
+            const issue = { owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number }
+            await github.rest.issues.update({ ...issue, body: process.env.NEW_BODY })
+            await github.rest.issues.createComment({ ...issue, body: process.env.COMMENT })
+
       - name: Open or update pull request
         id: pr
+        if: steps.build.outputs.mode != 'loaded'
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
         with:
           branch: ${{ steps.build.outputs.branch }}

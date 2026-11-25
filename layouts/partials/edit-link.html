@@ -10,7 +10,7 @@
   {{ $repo := site.Params.repoURL }}
   <p class="edit-link">
     {{ T "edit.label" }}
-    <a href="{{ $repo }}/issues/new?template=edit-post.yml&amp;slug={{ $page.File.ContentBaseName | urlquery }}">{{ T "edit.form" }}</a>
+    <a href="{{ $repo }}/issues/new?template=edit-post.yml&amp;slug={{ printf "%s/%s" $page.Section $page.File.ContentBaseName | urlquery }}">{{ T "edit.form" }}</a>
     ·
     <a href="{{ $repo }}/edit/master/content/{{ $page.File.Path | replaceRE `\\` `/` }}">{{ T "edit.github" }}</a>
   </p>

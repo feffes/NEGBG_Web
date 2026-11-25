@@ -47,6 +47,8 @@ function field(id) {
   if (typeof raw !== "string") return "";
   /* Issues edited in the browser come back with CRLF line endings. */
   let value = raw.replace(/\r\n?/g, "\n").trim();
+  /* The edit form's hidden "loaded" marker ends up inside the last field's value. */
+  value = value.replace(/\n*<!-- edit-post-loaded: [a-z0-9/-]+ -->/g, "").trim();
   if (value === NO_RESPONSE) return "";
   /* `render:` textareas arrive wrapped in a code fence on some parser versions. */
   const fenced = value.match(/^```[a-z]*\n([\s\S]*?)\n?```$/);
@@ -645,7 +647,8 @@ function setKey(toml, key, literal) {
   if (literal === null) {
     if (i !== -1) lines.splice(i, 1);
   } else if (i !== -1) {
-    lines[i] = `${key} = ${literal}`;
+    /* Only rewrite when the value differs, so aligned "key   = value" lines stay as they are. */
+    if (lines[i].slice(lines[i].indexOf("=") + 1).trim() !== literal) lines[i] = `${key} = ${literal}`;
   } else {
     let at = end;
     while (at > 0 && lines[at - 1].trim() === "") at--;
@@ -664,30 +667,58 @@ function getString(toml, key) {
   return m ? JSON.parse(m[1]) : "";
 }
 
-/* `old text => new text`, one per line. An empty new text deletes the old one. */
-function parseReplacements(text) {
-  return text
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => {
-      const i = line.indexOf("=>");
-      const find = i === -1 ? "" : line.slice(0, i).trim();
-      if (!find) {
-        throw new UserError(
-          `Each **Find and replace** line needs \`old text => new text\`. Got \`${line.trim()}\`.`,
-        );
-      }
-      return { find, replace: line.slice(i + 2).trim() };
-    });
-}
-
 /* ---------- form: edit an existing post or event ---------- */
 
-async function editPost() {
-  const slug = validSlug(required("slug", "Slug"), "Slug", "ggst-sep-2026-results");
+/*
+  Two steps, both driven by the same issue:
+
+  1. Load: the issue names a slug but has no content yet (or the slug changed since the
+     last load). The current post is written back into the issue body, in the exact
+     format the issue form produces, and nothing is committed.
+  2. Save: every later edit of the issue is read as the full new state of the post and
+     turned into a PR, like the other forms.
+
+  The issue body carries a hidden marker recording which slug was loaded. The workflow's
+  own edit of the issue body does not start a new run, so loading cannot loop.
+*/
+
+const LOADED_MARKER = /<!-- edit-post-loaded: ([a-z0-9/-]+) -->/;
+
+/* [id, label] pairs in form order, read from the template so the two never drift apart. */
+async function formLabels(form) {
+  const yml = await readFile(path.join(REPO, ".github/ISSUE_TEMPLATE", `${form}.yml`), "utf8");
+  return [...yml.matchAll(/^\s+id: (\S+)\n\s+attributes:\n\s+label: (.+)$/gm)].map((m) => [m[1], m[2].trim()]);
+}
+
+/* The issue form uses "### " to start each field, so a ### heading in a text would cut it off. */
+function demoteH3(text) {
+  return text.replace(/^###(?=\s)/gm, "####");
+}
+
+/*
+  Accepts a bare slug, "news/<slug>" / "events/<slug>", or the page's whole address
+  (https://negativeedge.se/en/news/<slug>/). Returns { section, slug }, section "" if bare.
+*/
+function parsePageRef(value) {
+  const ref = value
+    .trim()
+    .replace(/^https?:\/\/[^/]+/, "")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/^(en|sv)\//, "");
+  const m = ref.match(/^(?:(news|events)\/)?([^/]+)$/);
+  if (!m) {
+    throw new UserError(
+      `**Slug** must look like \`ggst-sep-2026-results\`, \`news/ggst-sep-2026-results\`, or the page's address. Got \`${value}\`.`,
+    );
+  }
+  return { section: m[1] ?? "", slug: validSlug(m[2], "Slug", "ggst-sep-2026-results") };
+}
+
+async function findPage({ section, slug }) {
   const newsDir = path.join(REPO, "content/news", slug);
   const eventDir = path.join(REPO, "content/events", slug);
-  const [isNews, isEvent] = [await exists(newsDir), await exists(eventDir)];
+  const isNews = section !== "events" && (await exists(newsDir));
+  const isEvent = section !== "news" && (await exists(eventDir));
   if (!isNews && !isEvent) {
     throw new UserError(
       `There is no post or event called \`${slug}\`. The slug is the last part of the page's address, ` +
@@ -695,173 +726,194 @@ async function editPost() {
     );
   }
   if (isNews && isEvent) {
-    throw new UserError(`\`${slug}\` is both a post and an event, which this form cannot tell apart. Edit it by hand.`);
+    throw new UserError(
+      `\`${slug}\` is both a news post and an event. Write \`news/${slug}\` or \`events/${slug}\` in **Slug** to pick one.`,
+    );
   }
-
   const dir = isNews ? newsDir : eventDir;
-  const rel = path.relative(REPO, dir);
-  const changes = [];
+  const dataFile = path.join(dir, "data.toml");
+  return {
+    dir,
+    isEvent,
+    rel: path.relative(REPO, dir),
+    dataFile,
+    data: isEvent && (await exists(dataFile)) ? (await readFile(dataFile, "utf8")).replace(/\r\n?/g, "\n") : "",
+  };
+}
 
-  const eventOnly = ["start", "end", "checkin_time", "price", "tournament_url", "discord_url"];
-  if (isNews) {
-    const used = eventOnly.filter((id) => field(id));
-    if (used.length) {
-      throw new UserError(
-        `\`${slug}\` is a news post, so the event fields (${used.map((id) => `\`${id}\``).join(", ")}) do not apply. ` +
-          "Leave them blank, or use the event's slug to change the event.",
-      );
-    }
+async function readPages(dir) {
+  const pages = {};
+  for (const lang of LANGS) {
+    const file = path.join(dir, `index.${lang}.md`);
+    if (await exists(file)) pages[lang] = { file, ...splitFrontMatter(await readFile(file, "utf8"), file) };
   }
-  if (isEvent && field("gallery")) {
-    throw new UserError("**Add gallery images** only works on news posts.");
+  return pages;
+}
+
+const ISO_TO_FORM = (iso) => (iso ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : "");
+
+async function loadIntoIssue(ref, key) {
+  const target = await findPage(ref);
+  const pages = await readPages(target.dir);
+  const values = { slug: key };
+  let demoted = false;
+
+  for (const [lang, page] of Object.entries(pages)) {
+    values[`title_${lang}`] = getString(page.front, "title");
+    values[`summary_${lang}`] = getString(page.front, "summary");
+    const body = demoteH3(page.body);
+    demoted ||= body !== page.body;
+    values[`body_${lang}`] = body;
   }
+
+  const coverPath = target.isEvent ? getString(target.data, "cover") : getString(pages.sv?.front ?? pages.en?.front ?? "", "cover");
+  values.cover = coverPath
+    ? `Current: \`${coverPath}\`. Drag a new image here to replace it, or leave this as it is.`
+    : "";
+
+  const oneOff = target.isEvent && getString(target.data, "start_date");
+  if (oneOff) {
+    values.start = ISO_TO_FORM(getString(target.data, "start_date"));
+    values.end = ISO_TO_FORM(getString(target.data, "end_date"));
+    values.checkin_time = getString(target.data, "checkin_time");
+    values.price = target.data.match(/^price\s*=\s*(\d+)/m)?.[1] ?? "";
+    values.tournament_url = getString(target.data, "tournament_url") || getString(target.data, "challonge_url");
+    values.discord_url = getString(target.data, "discord_url");
+  }
+
+  const body = (await formLabels("edit-post"))
+    .map(([id, label]) => `### ${label}\n\n${values[id] || NO_RESPONSE}`)
+    .join("\n\n") + `\n\n<!-- edit-post-loaded: ${key} -->\n`;
+
+  const notes = [
+    `Jag har laddat in nuvarande innehåll från \`${target.rel}\` i issuet.`,
+    "",
+    "**Redigera issuet** (⋯ → Edit) och ändra direkt i texten. När du sparar skapas en pull request med ändringarna, och varje ny ändring uppdaterar den.",
+  ];
+  if (target.isEvent && !oneOff) {
+    notes.push("", "Det här är ett återkommande event, så datum och tider kan inte ändras här.");
+  }
+  if (demoted) {
+    notes.push("", "Rubriker med `###` har gjorts om till `####`, eftersom formuläret använder `###` för sina fält.");
+  }
+  return { mode: "loaded", issue_body: body, comment: notes.join("\n") };
+}
+
+async function saveFromIssue(ref) {
+  const { slug } = ref;
+  const target = await findPage(ref);
+  const { dir, rel, isEvent, dataFile } = target;
+  const pages = await readPages(dir);
+  const changes = [];
 
   /* ----- text, per language ----- */
 
-  const replacements = parseReplacements(field("find_replace"));
-  const matched = new Set();
-  const pages = {};
-
   for (const lang of LANGS) {
-    const file = path.join(dir, `index.${lang}.md`);
-    const asked = [`title_${lang}`, `body_${lang}`].filter((id) => field(id));
-    if (!(await exists(file))) {
-      if (asked.length) throw new UserError(`\`${rel}\` has no ${lang} version, so it cannot be changed.`);
+    const page = pages[lang];
+    if (!page) {
+      if (field(`title_${lang}`) || field(`body_${lang}`)) {
+        throw new UserError(`\`${rel}\` has no ${lang} version, so it cannot be changed here.`);
+      }
       continue;
     }
-    const page = splitFrontMatter(await readFile(file, "utf8"), file);
-    const original = joinFrontMatter(page);
+    page.original = joinFrontMatter(page);
 
-    const title = field(`title_${lang}`);
-    if (title) {
+    const title = required(`title_${lang}`, `Title (${lang})`);
+    if (title !== getString(page.front, "title")) {
       page.front = setKey(page.front, "title", tomlString(title));
       changes.push(`New ${lang} title.`);
     }
 
-    const text = field(`body_${lang}`);
-    if (text) {
-      page.body = await rewriteBody(text, dir);
+    const summary = field(`summary_${lang}`);
+    if (summary !== getString(page.front, "summary")) {
+      if (!summary && isEvent) throw new UserError(`**Summary (${lang})** is shown in the event list and cannot be empty.`);
+      page.front = setKey(page.front, "summary", summary ? tomlString(summary) : null);
+      changes.push(`New ${lang} summary.`);
+    }
+
+    const body = await rewriteBody(required(`body_${lang}`, `Text (${lang})`), dir);
+    if (body !== demoteH3(page.body).trim()) {
+      page.body = body;
       changes.push(`New ${lang} text.`);
     }
-
-    for (const [i, { find, replace }] of replacements.entries()) {
-      const count = page.body.split(find).length - 1;
-      if (count === 0) continue;
-      matched.add(i);
-      page.body = page.body.split(find).join(replace);
-      changes.push(`Replaced \`${find}\` with \`${replace}\` (${lang}, ${count}×).`);
-    }
-
-    pages[lang] = { file, page, original };
   }
 
-  const unmatched = replacements.filter((_, i) => !matched.has(i));
-  if (unmatched.length) {
-    throw new UserError(
-      `**Find and replace** could not find this text in the post:\n\n` +
-        unmatched.map(({ find }) => `- \`${find}\``).join("\n") +
-        "\n\nIt has to match exactly, including capital letters and punctuation.",
-    );
+  /* ----- cover: only a newly dragged-in image replaces it ----- */
+
+  const cover = imageUrls(field("cover")).length ? await coverImage("cover") : null;
+  let newCoverPath = "";
+  if (cover && isEvent) {
+    const imagesDir = path.join(REPO, "assets/images");
+    const name = await freeName(imagesDir, (i) => (i === 1 ? `${slug}-cover` : `${slug}-cover-${i}`));
+    newCoverPath = `/images/${await writeImage(imagesDir, name, cover)}`;
+  } else if (cover) {
+    newCoverPath = await writeImage(dir, await freeName(dir, (i) => (i === 1 ? "cover" : `cover-${i}`)), cover);
+    for (const page of Object.values(pages)) page.front = setKey(page.front, "cover", tomlString(newCoverPath));
   }
+  if (newCoverPath) changes.push(`New cover \`${newCoverPath}\`.`);
 
-  /* ----- news: cover and gallery ----- */
+  /* ----- news: extra gallery images ----- */
 
-  if (isNews) {
-    const cover = await coverImage("cover", { optional: true });
-    if (cover) {
-      const file = await writeImage(dir, await freeName(dir, (i) => (i === 1 ? "cover" : `cover-${i}`)), cover);
-      for (const { page } of Object.values(pages)) page.front = setKey(page.front, "cover", tomlString(file));
-      changes.push(`New cover \`${file}\`.`);
-    }
-
+  if (field("gallery")) {
+    if (isEvent) throw new UserError("**Add gallery images** only works on news posts.");
     const added = await writeGallery(dir);
-    if (added) {
-      for (const [lang, { page }] of Object.entries(pages)) {
-        if (!page.body.includes("{{< gallery")) {
-          page.body += `\n\n## ${lang === "sv" ? "Galleri" : "Gallery"}\n\n{{< gallery >}}`;
-        }
+    for (const [lang, page] of Object.entries(pages)) {
+      if (added && !page.body.includes("{{< gallery")) {
+        page.body += `\n\n## ${lang === "sv" ? "Galleri" : "Gallery"}\n\n{{< gallery >}}`;
       }
-      changes.push(`Added ${added} gallery image${added === 1 ? "" : "s"}.`);
     }
+    if (added) changes.push(`Added ${added} gallery image${added === 1 ? "" : "s"}.`);
   }
 
-  /* ----- event: data.toml ----- */
+  /* ----- event: data.toml, as the full state of each field ----- */
 
   if (isEvent) {
-    const dataFile = path.join(dir, "data.toml");
-    const hasData = await exists(dataFile);
-    let data = hasData ? (await readFile(dataFile, "utf8")).replace(/\r\n?/g, "\n") : "";
+    let data = target.data;
     const originalData = data;
-    const asked = eventOnly.filter((id) => field(id));
-    if (asked.length && !hasData) throw new UserError(`\`${rel}\` has no data.toml to change.`);
+    const eventFields = ["start", "end", "checkin_time", "price", "tournament_url", "discord_url"];
 
-    const oldStart = getString(data, "start_date");
-    const oldEnd = getString(data, "end_date");
-    if ((field("start") || field("end")) && !oldStart) {
-      throw new UserError(
-        `\`${slug}\` is a recurring event; its dates are a schedule in data.toml that this form cannot change.`,
-      );
-    }
-
-    if (field("start") || field("end")) {
-      const toParts = (iso) => ({ day: iso.slice(0, 10), time: iso.slice(11, 16) });
-      const start = field("start") ? parseStart(field("start")) : toParts(oldStart);
-      const end = field("end") ? parseEnd(field("end"), start.day) : toParts(oldEnd);
+    if (!getString(data, "start_date")) {
+      if (eventFields.some((id) => field(id))) {
+        throw new UserError(`\`${slug}\` is a recurring event; its dates are a schedule this form cannot change.`);
+      }
+    } else {
+      const start = parseStart(required("start", "Start"));
+      const end = parseEnd(required("end", "End"), start.day);
       if (localDateTime(end.day, end.time) <= localDateTime(start.day, start.time)) {
-        throw new UserError(
-          `**End** (${end.day} ${end.time}) must be after **Start** (${start.day} ${start.time}). ` +
-            "If you moved the start, fill in a new end too.",
-        );
+        throw new UserError("**End** must be after **Start**.");
       }
       data = setKey(data, "start_date", tomlString(localDateTime(start.day, start.time)));
       data = setKey(data, "end_date", tomlString(localDateTime(end.day, end.time)));
-      changes.push(`Time: ${start.day} ${start.time} to ${end.day} ${end.time}.`);
-    }
 
-    const checkinInput = field("checkin_time");
-    if (checkinInput) {
-      const checkin = clockTime(checkinInput);
-      if (!checkin) {
+      const checkinInput = field("checkin_time");
+      const checkin = checkinInput ? clockTime(checkinInput) : "";
+      if (checkinInput && !checkin) {
         throw new UserError(`**Check-in** must be a 24-hour time like \`15:30\`. Got \`${checkinInput}\`.`);
       }
-      data = setKey(data, "checkin_time", tomlString(checkin));
-      changes.push(`Check-in ${checkin}.`);
-    }
+      data = setKey(data, "checkin_time", checkin ? tomlString(checkin) : null);
 
-    const price = field("price");
-    if (price) {
-      if (/^(0|free|gratis)$/i.test(price)) {
-        data = setKey(setKey(data, "price", null), "price_currency", null);
-        changes.push("Now free.");
-      } else if (/^\d+$/.test(price)) {
-        data = setKey(setKey(data, "price", price), "price_currency", tomlString("SEK"));
-        changes.push(`Price ${price} SEK.`);
-      } else {
-        throw new UserError(`**Price** must be a whole number of kronor, or \`0\` for free. Got \`${price}\`.`);
+      const price = field("price");
+      if (price && !/^\d+$/.test(price)) {
+        throw new UserError(`**Price** must be a whole number of kronor, or blank if free. Got \`${price}\`.`);
       }
-    }
+      data = price && price !== "0"
+        ? setKey(setKey(data, "price", price), "price_currency", tomlString("SEK"))
+        : setKey(setKey(data, "price", null), "price_currency", null);
 
-    for (const [id, key, label] of [
-      ["tournament_url", "tournament_url", "Tournament page"],
-      ["discord_url", "discord_url", "Discord event link"],
-    ]) {
-      const url = link(id, label);
-      if (url) {
-        data = setKey(data, key, tomlString(url));
-        changes.push(`${label}: ${url}`);
+      /* Older events store the link as challonge_url; an unchanged link stays put. */
+      const tournament = link("tournament_url", "Tournament page");
+      if (tournament !== (getString(data, "tournament_url") || getString(data, "challonge_url"))) {
+        data = setKey(setKey(data, "challonge_url", null), "tournament_url", tournament ? tomlString(tournament) : null);
       }
+      const discord = link("discord_url", "Discord event link");
+      data = setKey(data, "discord_url", discord ? tomlString(discord) : null);
     }
 
-    /* The cover is shared with the announcement post, which points at the same path. */
-    const cover = await coverImage("cover", { optional: true });
-    if (cover) {
-      const imagesDir = path.join(REPO, "assets/images");
-      const name = await freeName(imagesDir, (i) => (i === 1 ? `${slug}-cover` : `${slug}-cover-${i}`));
-      const newPath = `/images/${await writeImage(imagesDir, name, cover)}`;
+    if (newCoverPath) {
       const oldPath = getString(data, "cover");
-      data = setKey(data, "cover", tomlString(newPath));
-      changes.push(`New cover \`${newPath}\`.`);
+      data = setKey(data, "cover", tomlString(newCoverPath));
 
+      /* The announcement post points at the same shared cover path. */
       if (oldPath) {
         for (const post of await readdir(path.join(REPO, "content/news"))) {
           for (const lang of LANGS) {
@@ -871,7 +923,7 @@ async function editPost() {
             if (!source.includes(oldPath)) continue;
             const page = splitFrontMatter(source, file);
             if (getString(page.front, "cover") !== oldPath) continue;
-            page.front = setKey(page.front, "cover", tomlString(newPath));
+            page.front = setKey(page.front, "cover", tomlString(newCoverPath));
             await writeFile(file, joinFrontMatter(page));
             changes.push(`Updated the cover of \`content/news/${post}\` (${lang}) too.`);
           }
@@ -879,22 +931,38 @@ async function editPost() {
       }
     }
 
-    if (data !== originalData) await writeFile(dataFile, data.endsWith("\n") ? data : `${data}\n`);
+    if (data.trim() !== originalData.trim()) {
+      await writeFile(dataFile, `${data.trim()}\n`);
+      const withoutCover = (toml) => toml.replace(/^cover\s*=.*$/m, "").trim();
+      if (withoutCover(data) !== withoutCover(originalData)) changes.push("Updated the event details.");
+    }
   }
 
-  for (const { file, page, original } of Object.values(pages)) {
+  for (const page of Object.values(pages)) {
     const updated = joinFrontMatter(page);
-    if (updated !== original) await writeFile(file, updated);
-  }
-
-  if (changes.length === 0) {
-    throw new UserError("Nothing to change. Fill in at least one field besides **Slug**.");
+    if (updated !== page.original) await writeFile(page.file, updated);
   }
 
   return {
+    mode: "saved",
     title: `Ändring: ${slug}`,
-    summary: [`Edits \`${rel}\`:`, "", ...changes.map((c) => `- ${c}`)].join("\n"),
+    summary: changes.length
+      ? [`Edits \`${rel}\`:`, "", ...changes.map((c) => `- ${c}`)].join("\n")
+      : `No differences from the live \`${rel}\` yet.`,
   };
+}
+
+async function editPost() {
+  const ref = parsePageRef(required("slug", "Slug"));
+  /* Always record the unambiguous section/slug, so a later save hits the same page. */
+  const key = `${(await findPage(ref)).isEvent ? "events" : "news"}/${ref.slug}`;
+  const loaded = (process.env.ISSUE_BODY ?? "").match(LOADED_MARKER)?.[1];
+
+  /* Load when this slug's content is not in the issue yet. A TO who deleted the hidden
+     marker but already has text in the issue is saving, not asking for a reload. */
+  const hasContent = LANGS.some((lang) => field(`title_${lang}`) || field(`body_${lang}`));
+  if (loaded ? loaded !== key : !hasContent) return loadIntoIssue(ref, key);
+  return saveFromIssue({ section: key.split("/")[0], slug: ref.slug });
 }
 
 /* ---------- plumbing ---------- */
