@@ -527,7 +527,7 @@ async function newTournament() {
   }
 
   return {
-    title: `Ny turnering: ${text.sv.title}`,
+    title: `New tournament: ${text.en.title}`,
     summary: [
       `Adds the event \`content/events/${slug}\` and its announcement post \`content/news/${slug}-announcement\`.`,
       "",
@@ -628,7 +628,7 @@ async function newsPost() {
     ? ` linked to the event \`${eventSlug}\`${role ? ` as ${role === "recap" ? "a recap" : "an announcement"}` : ""}`
     : "";
   return {
-    title: `Nyhet: ${text.sv.title}`,
+    title: `News: ${text.en.title}`,
     summary: [`Adds the news post \`content/news/${slug}\`${linked}.`, ...notes].join("\n\n"),
   };
 }
@@ -843,12 +843,12 @@ async function loadIntoIssue(ref, key) {
   ].join("\n\n") + "\n";
 
   const notes = [
-    `Jag har laddat in nuvarande innehåll från \`${target.rel}\` i issuet.`,
+    `I loaded the current content of \`${target.rel}\` into this issue.`,
     "",
-    "**Redigera issuet** (⋯ → Edit) och ändra direkt i texten. När du sparar skapas en pull request med ändringarna, och varje ny ändring uppdaterar den.",
+    "**Edit the issue** (⋯ → Edit) and change what you want right in the text. Saving opens a pull request with your changes, and every later edit updates it.",
   ];
   if (target.isEvent && !oneOff) {
-    notes.push("", "Det här är ett återkommande event, så datum och tider kan inte ändras här.");
+    notes.push("", "This is a recurring event, so its dates and times cannot be changed here.");
   }
   return { mode: "loaded", issue_body: body, comment: notes.join("\n") };
 }
@@ -999,7 +999,7 @@ async function saveFromIssue(ref) {
 
   return {
     mode: "saved",
-    title: `Ändring: ${slug}`,
+    title: `Edit: ${slug}`,
     summary: changes.length
       ? [`Edits \`${rel}\`:`, "", ...changes.map((c) => `- ${c}`)].join("\n")
       : `No differences from the live \`${rel}\` yet.`,

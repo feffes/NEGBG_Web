@@ -94,13 +94,13 @@ jobs:
           commit-message: |
             ${{ steps.build.outputs.title }}
 
-            Från #${{ github.event.issue.number }}.
+            From #${{ github.event.issue.number }}.
           author: ${{ github.event.issue.user.login }} <${{ github.event.issue.user.id }}+${{ github.event.issue.user.login }}@users.noreply.github.com>
           body: |
             ${{ steps.build.outputs.summary }}
 
-            Skapad från #${{ github.event.issue.number }} av @${{ github.event.issue.user.login }}.
-            För att ändra något: redigera issuet, så uppdateras den här pull requesten.
+            Created from #${{ github.event.issue.number }} by @${{ github.event.issue.user.login }}.
+            To change something, edit the issue and this pull request updates itself.
 
             Closes #${{ github.event.issue.number }}
           delete-branch: true
@@ -117,11 +117,11 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: [
-                `Tack! Jag har skapat ${process.env.PR_URL} åt dig.`,
+                `Thanks! I opened ${process.env.PR_URL} for you.`,
                 '',
-                'Kolla igenom förhandsvisningen som Cloudflare lägger som en kommentar där. Ser det bra ut kan någon merga den, och då går den live.',
+                'Check the preview Cloudflare posts as a comment there. If it looks good, someone can merge it and it goes live.',
                 '',
-                'Behöver du ändra något: **redigera det här issuet**, så uppdaterar sig pull requesten själv.',
+                'Need to change something? **Edit this issue** and the pull request updates itself.',
               ].join('\n'),
             })
 
@@ -139,10 +139,10 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: [
-                'Jag kunde inte skapa posten:',
+                'I could not create the post:',
                 '',
                 `> ${(process.env.BUILD_ERROR || 'Something went wrong on our side, not in your form.').split('\n').join('\n> ')}`,
                 '',
-                `Redigera issuet så försöker jag igen automatiskt. ([Körningen](${process.env.RUN_URL}))`,
+                `Edit the issue and I will try again automatically. ([Run log](${process.env.RUN_URL}))`,
               ].join('\n'),
             })
