@@ -8,7 +8,7 @@ Du behöver **inte** klona repot eller installera något för att lägga upp en 
 
 - **[Ny turnering](https://github.com/Xgor/NEGBG_Web/issues/new?template=new-tournament.yml)** skapar både eventsidan och announcement-posten.
 - **[Nyhetspost](https://github.com/Xgor/NEGBG_Web/issues/new?template=news-post.yml)** skapar en nyhetspost. Fyll i ett event och välj typ (announcement, resultat eller övrigt) för att koppla posten till eventet.
-- **[Ändra post eller event](https://github.com/Xgor/NEGBG_Web/issues/new?template=edit-post.yml)** laddar in en befintlig sida i issuet så att du kan ändra den. Länken längst ner på varje post och event fyller i rätt sida åt dig.
+- **[Ändra post eller event](https://github.com/Xgor/NEGBG_Web/issues/new?template=edit-post.yml)** laddar in en befintlig sida i issuet så att du kan ändra den.
 
 Du kan dra in bilder direkt i formuläret. En pull request öppnas automatiskt, Cloudflare bygger en förhandsvisning som läggs som en kommentar, och när någon mergar går det live. Behöver du rätta något: **redigera issuet**, så uppdaterar sig pull requesten själv.
 

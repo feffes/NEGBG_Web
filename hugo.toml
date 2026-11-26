@@ -38,8 +38,6 @@ defaultContentLanguageInSubdir = false
       datetime_format = "Mon, Jan 2, 2006 at 3:04 PM"
       time_format = "3:04 PM"
 [params]
-  # Used by partials/edit-link.html for the edit form and GitHub editor links.
-  repoURL = "https://github.com/Xgor/NEGBG_Web"
   timeZoneAbbr = "CET/CEST"
   customCSS = ["/css/custom.css"]
   enableSharingButtons = true

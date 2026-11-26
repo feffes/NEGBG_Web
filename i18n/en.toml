@@ -38,8 +38,3 @@ links = "Links"
   archive-back-link = "Back to upcoming events"
   archive-no-past-events = "There are no past events to display."
   related-posts = "Related Posts"
-# partials/edit-link.html
-[edit]
-  label = "Edit this page:"
-  form = "form"
-  github = "on GitHub"
